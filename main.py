@@ -1,157 +1,192 @@
-import pygame
+import pygame, math, time, collections, random
 from pygame.locals import *
 from OpenGL.GL import *
 from OpenGL.GLU import *
-import math, time, collections
 
 # --- ГЕОМЕТРИЯ КУБА ---
 V = ((1,-1,-1), (1,1,-1), (-1,1,-1), (-1,-1,-1), (1,-1,1), (1,1,1), (-1,1,1), (-1,-1,1))
-FACES = ((0,1,2,3), (4,5,6,7), (0,4,7,3), (1,5,6,2), (1,0,4,5), (2,3,7,6))
-EDGES = ((0,1), (1,2), (2,3), (3,0), (4,5), (5,6), (6,7), (7,4), (0,4), (1,5), (2,6), (3,7))
+FACES = ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (1, 2, 6, 5), (0, 4, 7, 3))
 
-def draw_cube(r, g, b):
+def create_star_sphere(count):
+    s_list = glGenLists(1)
+    glNewList(s_list, GL_COMPILE)
+    glBegin(GL_POINTS)
+    for _ in range(count):
+        theta, phi = random.uniform(0, 6.28), math.acos(random.uniform(-1, 1))
+        r = 110
+        x, y, z = r*math.sin(phi)*math.cos(theta), r*math.sin(phi)*math.sin(theta), r*math.cos(phi)
+        glColor3f(random.uniform(0.5, 0.9), random.uniform(0.6, 1.0), 1.0)
+        glVertex3f(x, y, z)
+    glEnd(); glEndList()
+    return s_list
+
+def create_wireframe_mountains(res, size):
+    """Сетка гор в стиле Matrix/Wireframe"""
+    m_list = glGenLists(1)
+    glNewList(m_list, GL_COMPILE)
+    glLineWidth(1)
+    step = (size * 2) / res
+    
+    # Рисуем линии вдоль оси X
+    for i in range(res + 1):
+        glBegin(GL_LINE_STRIP)
+        for j in range(res + 1):
+            x = -size + i * step
+            z = -size + j * step
+            
+            # Математический шум ландшафта
+            h = math.sin(x * 0.1) * math.cos(z * 0.1) * 4.5
+            h += math.sin(x * 0.3) * math.sin(z * 0.4) * 1.5
+            
+            # Плавное затухание к краям
+            dist = math.sqrt(x*x + z*z)
+            falloff = max(0, 1.0 - (dist / size)**2)
+            h *= falloff
+            h -= 8
+
+            # Цвет: неоново-зеленый градиент по высоте
+            c = (h + 10) / 10
+            glColor3f(0.0, 0.4 + c*0.6, 0.1) 
+            glVertex3f(x, h, z)
+        glEnd()
+
+    # Рисуем линии вдоль оси Z (для создания сетки)
+    for j in range(res + 1):
+        glBegin(GL_LINE_STRIP)
+        for i in range(res + 1):
+            x = -size + i * step
+            z = -size + j * step
+            h = (math.sin(x * 0.1) * math.cos(z * 0.1) * 4.5 + 
+                 math.sin(x * 0.3) * math.sin(z * 0.4) * 1.5)
+            h *= max(0, 1.0 - (math.sqrt(x*x + z*z) / size)**2)
+            h -= 8
+            
+            c = (h + 10) / 10
+            glColor3f(0.0, 0.3 + c*0.5, 0.05)
+            glVertex3f(x, h, z)
+        glEnd()
+        
+    glEndList()
+    return m_list
+
+def draw_cube(r, g, b, t):
+    glPushMatrix()
+    glScalef(1.8, 1.8, 1.8)
+    glEnable(GL_CULL_FACE); glCullFace(GL_BACK); glFrontFace(GL_CCW)
+    glRotatef(t * 70, 1, 0.5, 0.2) 
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
     glBegin(GL_QUADS)
     glColor3f(r, g, b)
     for f in FACES:
         for v in f: glVertex3fv(V[v])
     glEnd()
-    glLineWidth(5)
-    glColor3f(0, 0, 0)
-    glBegin(GL_LINES)
-    for e in EDGES:
-        for v in e: glVertex3fv(V[v])
+    glLineWidth(3); glColor3f(0, 0, 0)
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+    glEnable(GL_POLYGON_OFFSET_LINE); glPolygonOffset(-1.0, -1.1)
+    glBegin(GL_QUADS)
+    for f in FACES:
+        for v in f: glVertex3fv(V[v])
     glEnd()
-
-def get_beautiful_mtn(res=25):
-    grid = []
-    for i in range(res):
-        row = []
-        for j in range(res):
-            dist = math.sqrt((i-res/2)**2 + (j-res/2)**2)
-            h = 0
-            if dist > 6:
-                h = (dist - 6) * 1.2 * (0.8 + 0.4 * math.sin(i*0.5) * math.cos(j*0.5))
-            row.append(h - 5)
-        grid.append(row)
-    return grid
+    glDisable(GL_POLYGON_OFFSET_LINE); glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); glDisable(GL_CULL_FACE); glPopMatrix()
 
 def main():
     pygame.init()
     pygame.display.set_mode((1000, 700), DOUBLEBUF | OPENGL)
     glEnable(GL_DEPTH_TEST)
-    glDepthFunc(GL_LEQUAL)
     
-    gpu = glGetString(GL_RENDERER).decode().split()[0]
+    gpu_info = glGetString(GL_RENDERER).decode().split()[0]
     clock = pygame.time.Clock()
-    fps_log = collections.deque(maxlen=500)
-    limits = [30, 60, 120, 144, 200, 240, 0]
-    l_idx = 6 
+    fps_log = collections.deque(maxlen=1000)
     
-    scene_idx = 1 
-    scenes = ["VOID", "WAVY SEA", "NEON GRID", "FAR HILLS"]
-    mtn = get_beautiful_mtn()
-    px, py, vx, vy = 0.0, 0.0, 4.2, 3.2
+    limits = [30, 60, 120, 144, 240, 0]; l_idx = 1 
+    scene_idx = 3 
+    cam_mode = 'E' 
+    scenes = ["VOID", "SEA", "MATRIX", "WIRE-HILLS"]
+    
+    STARS = create_star_sphere(1200)
+    MTN_LIST = create_wireframe_mountains(50, 60)
+    
+    px, py, vx, vy = 0.0, 0.0, 6.0, 4.5
+    limit_x, limit_y = 5.8, 4.1
+    last_stat_update = 0
 
     while True:
+        curr_lock = limits[l_idx]
+        dt = clock.tick_busy_loop(curr_lock) / 1000.0 if curr_lock > 0 else clock.tick() / 1000.0
         t = time.time()
-        lim = limits[l_idx]
-        dt = clock.tick(lim) / 1000.0
         
-        cfps = clock.get_fps()
-        if cfps > 1: fps_log.append(cfps)
-        
-        sorted_f = sorted(list(fps_log))
-        l1 = sorted_f[int(len(sorted_f)*0.01)] if len(sorted_f) > 100 else 0
-        l01 = sorted_f[int(len(sorted_f)*0.001)] if len(sorted_f) > 100 else 0
-
         for event in pygame.event.get():
             if event.type == QUIT: return
             if event.type == KEYDOWN:
-                if event.key == K_RIGHT: scene_idx = (scene_idx + 1) % 4
-                if event.key == K_LEFT: scene_idx = (scene_idx - 1) % 4
+                if event.key == K_ESCAPE: return
+                if event.key in [K_1, K_2, K_3, K_4]: scene_idx = int(event.unicode)-1
+                if event.key == K_q: cam_mode = 'Q'
+                if event.key == K_w: cam_mode = 'W'
+                if event.key == K_e: cam_mode = 'E'
+                if event.key == K_r: cam_mode = 'R'
                 if event.key == K_UP: l_idx = (l_idx + 1) % len(limits)
                 if event.key == K_DOWN: l_idx = (l_idx - 1) % len(limits)
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
-        gluPerspective(45, 1.42, 0.1, 150.0)
-        
-        # Камера
-        if scene_idx == 0: 
-            glTranslatef(0, 0, -15)
-        else: 
-            gluLookAt(math.sin(t*0.3)*25, 8, math.cos(t*0.3)*25, 0, 0, 0, 0, 1, 0)
+        gluPerspective(45, 1.42, 0.1, 350.0)
 
-        # --- ОТРИСОВКА ОКРУЖЕНИЙ ---
-        if scene_idx == 1: # МОРЕ
-            glLineWidth(1)
-            glBegin(GL_LINES)
-            glColor3f(0.0, 0.5, 0.8)
-            for i in range(-20, 21):
-                for j in range(-20, 20):
-                    z1, z2 = j*2, (j+1)*2
-                    x = i*2
-                    y1 = math.sin(t*2 + x*0.2 + z1*0.3) * 0.4 - 5
-                    y2 = math.sin(t*2 + x*0.2 + z2*0.3) * 0.4 - 5
-                    glVertex3f(x, y1, z1); glVertex3f(x, y2, z2)
-                    x1, x2 = i*2, (i+1)*2
-                    z = j*2
-                    y3 = math.sin(t*2 + x1*0.2 + z*0.3) * 0.4 - 5
-                    y4 = math.sin(t*2 + x2*0.2 + z*0.3) * 0.4 - 5
-                    glVertex3f(x1, y3, z); glVertex3f(x2, y4, z)
-            glEnd()
+        # КАМЕРА
+        if cam_mode == 'Q': glTranslatef(0, 0, -20)
+        elif cam_mode == 'W': gluLookAt(40, 30, 40, 0, -5, 0, 0, 1, 0)
+        elif cam_mode == 'E': gluLookAt(math.sin(t*0.3)*50, 25, math.cos(t*0.3)*50, 0, -5, 0, 0, 1, 0)
+        elif cam_mode == 'R': gluLookAt(0, 10, 40, 0, 0, 0, 0, 1, 0)
 
-        elif scene_idx == 2: # КИБЕР
-            glLineWidth(2)
-            glBegin(GL_LINES)
-            m = (t * 8) % 10
-            for i in range(-40, 41, 2):
-                for j in range(-40, 40, 4):
-                    grad = (j + 40) / 80.0
-                    glColor3f(0.5 * grad, 0.2, 1.0 - 0.5 * grad)
-                    glVertex3f(i, -4.5, j + m); glVertex3f(i, -4.5, j + 4 + m)
-                    glVertex3f(j + m, -4.5, i); glVertex3f(j + 4 + m, -4.5, i)
-            glEnd()
+        glCallList(STARS)
 
-        elif scene_idx == 3: # ГОРЫ
-            glLineWidth(1)
-            glBegin(GL_LINES)
-            for i in range(len(mtn) - 1):
-                for j in range(len(mtn) - 1):
-                    h = mtn[i][j]
-                    if h > -4.9:
-                        c = (h + 5) / 10.0
-                        glColor3f(0.1, 0.3 + c, 0.1 + c*0.5)
-                        glVertex3f(i*4-50, h, j*4-50); glVertex3f((i+1)*4-50, mtn[i+1][j], j*4-50)
-                        glVertex3f(i*4-50, h, j*4-50); glVertex3f(i*4-50, mtn[i][j+1], (j+1)*4-50)
-            glEnd()
-
-        # --- КУБ (ОБЪЕДИНЕННАЯ ЛОГИКА) ---
-        glPushMatrix()
-        if scene_idx == 0:
-            # Движение DVD
+        # СЦЕНЫ
+        if scene_idx == 0: # VOID
             px += vx * dt; py += vy * dt
-            # Проверка границ с принудительным выталкиванием (px=6.5)
-            if px > 6.5:  px = 6.5;  vx *= -1
-            elif px < -6.5: px = -6.5; vx *= -1
-            if py > 4.5:  py = 4.5;  vy *= -1
-            elif py < -4.5: py = -4.5; vy *= -1
-            glTranslatef(px, py, 0)
-        else:
-            # Парение в море/сетке
-            glTranslatef(0, math.sin(t*2)*1.2 + 2, 0)
+            if abs(px) > limit_x: vx *= -1; px = limit_x if px > 0 else -limit_x
+            if abs(py) > limit_y: vy *= -1; py = limit_y if py > 0 else -limit_y
+            glPushMatrix(); glTranslatef(px, py, 0); draw_cube((math.sin(t)+1)/2, (math.sin(t+2)+1)/2, (math.sin(t+4)+1)/2, t); glPopMatrix()
         
-        # ВРАЩЕНИЕ — ВСЕГДА ПОСЛЕ ТРАНСЛЯЦИИ
-        glRotatef(t * 80, 1, 1, 0)
-        
-        # РИСУЕМ
-        r, g, b = (math.sin(t)+1)/2, (math.sin(t+2)+1)/2, (math.sin(t+4)+1)/2
-        draw_cube(r, g, b)
-        glPopMatrix()
+        elif scene_idx == 1: # SEA
+            glLineWidth(1); glBegin(GL_LINES)
+            s = 2.5
+            for i in range(-15, 16):
+                for j in range(-15, 16):
+                    x, z = i*s, j*s
+                    y = math.sin(t*2.5 + x*0.3 + z*0.3) * 0.8 - 6
+                    glColor3f(0.0, 0.5, 0.9)
+                    if i < 15:
+                        yn = math.sin(t*2.5 + (x+s)*0.3 + z*0.3) * 0.8 - 6
+                        glVertex3f(x, y, z); glVertex3f(x+s, yn, z)
+                    if j < 15:
+                        yn = math.sin(t*2.5 + x*0.3 + (z+s)*0.3) * 0.8 - 6
+                        glVertex3f(x, y, z); glVertex3f(x, yn, z+s)
+            glEnd()
+            glPushMatrix(); glTranslatef(0, math.sin(t*2.5)*1.2 + 2, 0); draw_cube((math.sin(t)+1)/2, (math.sin(t+2)+1)/2, (math.sin(t+4)+1)/2, t); glPopMatrix()
 
-        # --- ПАНЕЛЬ ---
-        stats = f"FPS:{int(cfps)} | 1%:{int(l1)} | 0.1%:{int(l01)}"
-        pygame.display.set_caption(f"{scenes[scene_idx]} | {gpu} | {stats} | LIM:{lim if lim > 0 else 'INF'}")
+        elif scene_idx == 2: # MATRIX (СИНЕ-ФИОЛЕТОВЫЙ)
+            glLineWidth(2); m = (t * 10) % 10
+            glBegin(GL_LINES)
+            for i in range(-55, 56, 5):
+                alpha = max(0, 1.0 - abs(i)/55); mix = (i + 55) / 110 
+                glColor3f(mix * 0.6 * alpha, (1-mix) * 0.3 * alpha, 0.9 * alpha)
+                glVertex3f(i, -6, -55 + m); glVertex3f(i, -6, 55 + m)
+                glVertex3f(-55, -6, i + m); glVertex3f(55, -6, i + m)
+            glEnd()
+            glPushMatrix(); glTranslatef(0, 2, 0); draw_cube((math.sin(t)+1)/2, (math.sin(t+2)+1)/2, (math.sin(t+4)+1)/2, t); glPopMatrix()
+
+        elif scene_idx == 3: # WIREFRAME HILLS
+            glCallList(MTN_LIST)
+            glPushMatrix(); glTranslatef(0, 2 + math.sin(t)*0.5, 0); draw_cube((math.sin(t)+1)/2, (math.sin(t+2)+1)/2, (math.sin(t+4)+1)/2, t); glPopMatrix()
+
+        # ТЕЛЕМЕТРИЯ
+        if t - last_stat_update > 0.5:
+            cfps = clock.get_fps()
+            if cfps > 1: fps_log.append(cfps)
+            sorted_f = sorted(list(fps_log)) if len(fps_log) > 100 else [0]*100
+            l1 = sorted_f[int(len(sorted_f)*0.01)]
+            pygame.display.set_caption(f"{scenes[scene_idx]} | {gpu_info} | FPS: {int(cfps)} | 1% Low: {int(l1)} | Lock: {curr_lock if curr_lock > 0 else 'INF'}")
+            last_stat_update = t
+        
         pygame.display.flip()
 
 if __name__ == "__main__":
