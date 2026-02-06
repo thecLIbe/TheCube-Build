@@ -10,6 +10,7 @@ TECHNICAL INFORMATION:
 * Version: 1.0.0
 * Engine: Python + PyOpenGL
 * Requirements: Video card with OpenGL 2.1+ support
+
 RU:УПРАВЛЕНИЕ:
 * Стрелки ВЛЕВО / ВПРАВО - Смена сцен
 * Стрелки ВВЕРХ / ВНИЗ - Лимит FPS (30 - INF)
