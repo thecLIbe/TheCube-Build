@@ -1,0 +1,22 @@
+name: Build EXE
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Libs
+        run: |
+          pip install pygame PyOpenGL nuitka zstandard
+      - name: Build
+        run: |
+          python -m nuitka --standalone --onefile --include-package=pygame --include-package=OpenGL --disable-console main.py
+      - name: Save EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyCubeGame
+          path: main.exe
