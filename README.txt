@@ -22,4 +22,4 @@ RU:ТЕХНИЧЕСКАЯ ИНФОРМАЦИЯ:
 Автор/Author:
 telegram- https://t.me/+WYOhV2IuaCY0YjYy
 tiktok- https://www.tiktok.com/@the_c1_1be
-buy me a coffee- https://www.donationalerts.com/dashboard/dalink/settings
+buy me a coffee- https://dalink.to/the_c1_1be
