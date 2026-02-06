@@ -20,7 +20,7 @@ jobs:
           pip install pygame PyOpenGL nuitka zstandard
       - name: Build EXE
         run: |
-          python -m nuitka --standalone --onefile --include-package=pygame --include-package=OpenGL --disable-console main.py
+          python -m nuitka --standalone --onefile --include-package=pygame --include-package=OpenGL --disable-console --assume-yes-for-downloads main.py
       - name: Upload Windows Version
         uses: actions/upload-artifact@v4
         with:
